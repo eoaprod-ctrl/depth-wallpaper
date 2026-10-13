@@ -152,13 +152,14 @@ public class SettingsActivity extends Activity {
 
     /** Runs on the io thread. Downloads the depth model once, with visible progress. */
     private void ensureModel() {
-        if (DepthModel.available(this)) return;
-        main.post(() -> status.setText("מוריד את מודל העומק — פעם אחת בלבד (66MB)…"));
-        boolean ok = DepthModel.download(this, pct ->
-                main.post(() -> status.setText("מוריד את מודל העומק — פעם אחת בלבד: " + pct + "%")));
+        if (Models.allAvailable(this)) return;
+        long mb = Models.missingBytes(this) / (1024 * 1024);
+        main.post(() -> status.setText("מוריד מודלים לעומק ולהשלמת רקע — פעם אחת בלבד (" + mb + "MB)…"));
+        boolean ok = Models.downloadAll(this, pct ->
+                main.post(() -> status.setText("מוריד מודלים — פעם אחת בלבד: " + Math.min(100, pct) + "%")));
         if (!ok) {
             main.post(() -> Toast.makeText(this,
-                    "ההורדה נכשלה — התמונות יעובדו בשיטה הפשוטה. בדוק אינטרנט ונסה שוב.",
+                    "ההורדה נכשלה — התמונות יעובדו בשיטה הפשוטה. בדוק אינטרנט ופתח שוב.",
                     Toast.LENGTH_LONG).show());
         }
     }
@@ -178,6 +179,7 @@ public class SettingsActivity extends Activity {
                 try { ImageStore.buildLayers(this, todo.get(i)); } catch (Throwable ignored) {}
             }
             DepthModel.release();
+            Inpainter.release();
             main.post(() -> { status.setText("השדרוג הושלם"); refreshThumbs(); });
         });
     }
@@ -229,11 +231,12 @@ public class SettingsActivity extends Activity {
             int ok = 0;
             for (int i = 0; i < uris.size(); i++) {
                 final int n = i + 1;
-                main.post(() -> status.setText("מפריד אובייקט מרקע בתמונה " + n + " מתוך " + uris.size() + "…"));
+                main.post(() -> status.setText("מפריד אובייקט ומשלים רקע בתמונה " + n + " מתוך " + uris.size() + "…"));
                 try { ImageStore.importImage(this, uris.get(i)); ok++; }
                 catch (Throwable t) { /* skip unreadable file */ }
             }
             DepthModel.release();
+            Inpainter.release();
             final int done = ok;
             main.post(() -> {
                 status.setText(done == uris.size() ? "" : "חלק מהתמונות לא נטענו");
