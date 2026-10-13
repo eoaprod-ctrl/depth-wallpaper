@@ -45,12 +45,25 @@ jobs:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || vars.KEYSTORE_PASSWORD }}
           KEY_ALIAS: depthwall
+        shell: bash
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ] && [ -f signing/password.txt ]; then
             export KEYSTORE_PASSWORD="$(cat signing/password.txt)"
           fi
-          gradle --no-daemon :app:assembleRelease
+          gradle --no-daemon :app:assembleRelease 2>&1 | tee build.log
+          test ${PIPESTATUS[0]} -eq 0
           cp app/build/outputs/apk/release/app-release.apk depth-wallpaper.apk
+
+      - name: Save build log to a branch for diagnosis
+        if: failure()
+        run: |
+          git config user.name ci; git config user.email ci@users.noreply.github.com
+          git checkout --orphan build-logs
+          git rm -rq --cached . || true
+          tail -n 300 build.log > last-build.log
+          git add -f last-build.log
+          git commit -qm "build log ${{ github.run_number }}"
+          git push -f origin build-logs
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
