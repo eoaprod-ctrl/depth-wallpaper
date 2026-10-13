@@ -208,11 +208,11 @@ final class DepthRenderer implements GLSurfaceView.Renderer {
         setScale(uScaleA, aspectA, screenAspect);
         setScale(uScaleB, hasB ? aspectB : aspectA, screenAspect);
 
-        float tx = -curX * amp, ty = -curY * amp * screenAspect;
-        GLES30.glUniform2f(uTilt, tx, ty);
+        float ox = -curX * amp, oy = -curY * amp * screenAspect;
+        GLES30.glUniform2f(uTilt, ox, oy);
         GLES30.glUniform2f(uScroll, curScroll * scrollAmp, 0f);
         // shadow falls away from the light, a little down-right, and slides with the tilt
-        GLES30.glUniform2f(uShadowOff, -0.012f + tx * 0.15f, -0.018f + ty * 0.15f);
+        GLES30.glUniform2f(uShadowOff, -0.012f + ox * 0.15f, -0.018f + oy * 0.15f);
         GLES30.glUniform1f(uShadow, shadow ? 0.32f : 0f);
         GLES30.glUniform1f(uBlur, blur ? 2.2f : 0f);
         GLES30.glUniform1f(uZoom, zoom);
