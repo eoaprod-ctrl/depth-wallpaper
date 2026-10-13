@@ -57,6 +57,42 @@ public final class ImageStore {
         return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux5.png"));
     }
 
+    public static File depthMapFor(File img) {
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".dmap.png"));
+    }
+
+    /** Subject mask drawn by the user in the editor (work resolution, grayscale). */
+    public static File userMaskFor(File img) {
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".umask.png"));
+    }
+
+    public static float[] loadUserMask(File img) {
+        File f = userMaskFor(img);
+        if (!f.exists()) return null;
+        Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
+        if (b == null) return null;
+        int n = b.getWidth() * b.getHeight();
+        int[] px = new int[n];
+        b.getPixels(px, 0, b.getWidth(), 0, 0, b.getWidth(), b.getHeight());
+        b.recycle();
+        float[] m = new float[n];
+        for (int i = 0; i < n; i++) m[i] = ((px[i] >> 8) & 0xFF) / 255f;
+        return m;
+    }
+
+    public static void saveUserMask(File img, float[] m, int w, int h) throws IOException {
+        int[] px = new int[w * h];
+        for (int i = 0; i < px.length; i++) {
+            int v = Math.max(0, Math.min(255, Math.round(m[i] * 255f)));
+            px[i] = 0xFF000000 | (v << 16) | (v << 8) | v;
+        }
+        Bitmap b = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+        try (FileOutputStream fo = new FileOutputStream(userMaskFor(img))) {
+            b.compress(Bitmap.CompressFormat.PNG, 100, fo);
+        }
+        b.recycle();
+    }
+
     public static File bgFor(File img) {
         return new File(img.getParentFile(), img.getName().replace(".jpg", ".bg.jpg"));
     }
@@ -71,7 +107,7 @@ public final class ImageStore {
     }
 
     public static boolean needsLayers(File img) {
-        return !auxFor(img).exists() || !bgFor(img).exists();
+        return !depthMapFor(img).exists() || !auxFor(img).exists() || !bgFor(img).exists();
     }
 
     /** (Re)builds the subject/background layers for an already imported image. */
@@ -79,7 +115,7 @@ public final class ImageStore {
         Bitmap bmp = loadFull(img);
         if (bmp == null) throw new IOException("decode failed");
         try {
-            LayerBuilder.build(c, bmp, auxFor(img), bgFor(img));
+            LayerBuilder.build(c, bmp, auxFor(img), bgFor(img), depthMapFor(img), loadUserMask(img));
         } finally {
             bmp.recycle();
         }
@@ -101,6 +137,8 @@ public final class ImageStore {
         auxFor(img).delete();
         new File(auxFor(img).getPath() + ".simple").delete();
         bgFor(img).delete();
+        depthMapFor(img).delete();
+        userMaskFor(img).delete();
         cleanupLegacy(img);
         bump(c);
     }
@@ -142,7 +180,7 @@ public final class ImageStore {
             bmp.compress(Bitmap.CompressFormat.JPEG, 95, fo);
         }
         try {
-            LayerBuilder.build(c, bmp, auxFor(out), bgFor(out));
+            LayerBuilder.build(c, bmp, auxFor(out), bgFor(out), depthMapFor(out), null);
         } finally {
             bmp.recycle();
         }

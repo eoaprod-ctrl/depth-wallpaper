@@ -83,7 +83,7 @@ public class SettingsActivity extends Activity {
         Button add = button("הוסף תמונות מהגלריה", false);
         add.setOnClickListener(v -> pickImages());
         imgCard.addView(add);
-        TextView hint = text("הקשה על תמונה מציגה אותה עכשיו, לחיצה ארוכה מוחקת", 12, C_MUTED);
+        TextView hint = text("הקש על תמונה כדי לסמן את האובייקט שיבלוט, להציג אותה או למחוק", 12, C_MUTED);
         hint.setPadding(0, dp(8), 0, 0);
         imgCard.addView(hint);
 
@@ -185,6 +185,12 @@ public class SettingsActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (thumbs != null) refreshThumbs();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         io.shutdown();
@@ -283,11 +289,22 @@ public class SettingsActivity extends Activity {
             iv.setBackground(border);
             iv.setPadding(dp(3), dp(3), dp(3), dp(3));
             iv.setClipToOutline(true);
-            iv.setOnClickListener(v -> {
-                prefs.edit().putInt(ImageStore.K_INDEX, idx)
-                        .putLong(ImageStore.K_LAST, System.currentTimeMillis()).apply();
-                refreshThumbs();
-            });
+            iv.setOnClickListener(v -> new AlertDialog.Builder(this)
+                    .setItems(new String[]{"סמן את האובייקט להבלטה", "הצג כרקע עכשיו", "מחק מהרקע"}, (d, which) -> {
+                        if (which == 0) {
+                            Intent e = new Intent(this, EditorActivity.class);
+                            e.putExtra(EditorActivity.EXTRA_FILE, f.getAbsolutePath());
+                            startActivity(e);
+                        } else if (which == 1) {
+                            prefs.edit().putInt(ImageStore.K_INDEX, idx)
+                                    .putLong(ImageStore.K_LAST, System.currentTimeMillis()).apply();
+                            refreshThumbs();
+                        } else {
+                            ImageStore.remove(this, f);
+                            refreshThumbs();
+                        }
+                    })
+                    .show());
             iv.setOnLongClickListener(v -> {
                 new AlertDialog.Builder(this)
                         .setMessage("למחוק את התמונה מהרקע?")

@@ -22,7 +22,18 @@ final class LayerBuilder {
 
     private LayerBuilder() {}
 
-    static void build(Context c, Bitmap full, File auxOut, File bgOut) throws IOException {
+    /** Work-resolution size used for masks and depth maps of an image of this size. */
+    static int[] workSize(int fw, int fh) {
+        float s = WORK / (float) Math.max(fw, fh);
+        return new int[]{Math.max(8, Math.round(fw * s)), Math.max(8, Math.round(fh * s))};
+    }
+
+    /**
+     * @param depthOut  where to save the depth map (for the subject editor), may be null
+     * @param userMask  a mask the user drew in the editor (work resolution, 0..1), or null for automatic
+     */
+    static void build(Context c, Bitmap full, File auxOut, File bgOut, File depthOut,
+                      float[] userMask) throws IOException {
         float s = WORK / (float) Math.max(full.getWidth(), full.getHeight());
         int w = Math.max(8, Math.round(full.getWidth() * s));
         int h = Math.max(8, Math.round(full.getHeight() * s));
@@ -62,6 +73,15 @@ final class LayerBuilder {
         // snap depth edges to the photo's real edges
         d = guided(gray, d, w, h, 8, 2e-3f);
         clamp01(d);
+        if (depthOut != null) {
+            int[] dp = new int[n];
+            for (int i = 0; i < n; i++) { int v = to8(d[i]); dp[i] = 0xFF000000 | (v << 16) | (v << 8) | v; }
+            Bitmap db = Bitmap.createBitmap(dp, w, h, Bitmap.Config.ARGB_8888);
+            try (FileOutputStream fo = new FileOutputStream(depthOut)) {
+                db.compress(Bitmap.CompressFormat.PNG, 100, fo);
+            }
+            db.recycle();
+        }
 
         // ---- subject mask ----
         float t = otsu(d);
@@ -80,6 +100,17 @@ final class LayerBuilder {
         float frac = (float) (sum / n);
         boolean hasSubject = frac > 0.03f && frac < 0.75f;
         if (!hasSubject) Arrays.fill(mask, 0f);
+
+        // the user's own selection wins: soften its edge along the photo's real edges
+        if (userMask != null && userMask.length == n) {
+            float[] um = guided(gray, userMask, w, h, 2, 1e-4f);
+            sum = 0;
+            for (int i = 0; i < n; i++) {
+                mask[i] = Math.max(0f, Math.min(1f, (um[i] - 0.1f) / 0.8f));
+                sum += mask[i];
+            }
+            hasSubject = sum > 16;
+        }
 
         // ---- separated depth: exaggerate subject/background gap, focus plane at 0.5 ----
         float focus = 0.35f * t + 0.65f * 0.5f;
