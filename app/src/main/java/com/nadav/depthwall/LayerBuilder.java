@@ -108,32 +108,70 @@ final class LayerBuilder {
             auxPx[i] = 0xFF000000 | (to8(fgDepth[i]) << 16) | (to8(mask[i]) << 8) | to8(bgDepth[i]);
         }
 
-        // background at full resolution: original pixels, filled-in only where the subject was
+        // background at full resolution. The hole left by the subject is filled by mirroring the
+        // neighbouring background across the hole's edge, row by row: the revealed strip keeps real
+        // texture (pavement, walls, leaves) instead of a smooth blur. Rows that are entirely hole
+        // fall back to the smooth push-pull colour.
         int fw = full.getWidth(), fh = full.getHeight();
-        int[] bgPx = new int[fw * fh];
-        full.getPixels(bgPx, 0, fw, 0, 0, fw, fh);
+        int[] src = new int[fw * fh];
+        full.getPixels(src, 0, fw, 0, 0, fw, fh);
+        int[] bgPx = src.clone();
+        boolean[] inHole = new boolean[fw];
+        float[] colX = new float[fw];
+        int[] colX0 = new int[fw], colX1 = new int[fw];
+        for (int x = 0; x < fw; x++) {
+            float sx = Math.max(0f, Math.min(w - 1f, (x + 0.5f) * w / fw - 0.5f));
+            colX0[x] = (int) sx; colX1[x] = Math.min(colX0[x] + 1, w - 1); colX[x] = sx - colX0[x];
+        }
         for (int y = 0; y < fh; y++) {
             float sy = Math.max(0f, Math.min(h - 1f, (y + 0.5f) * h / fh - 0.5f));
             int y0 = (int) sy, y1 = Math.min(y0 + 1, h - 1);
             float ty = sy - y0;
+            boolean any = false;
             for (int x = 0; x < fw; x++) {
-                float sx = Math.max(0f, Math.min(w - 1f, (x + 0.5f) * w / fw - 0.5f));
-                int x0 = (int) sx, x1 = Math.min(x0 + 1, w - 1);
-                float tx = sx - x0;
-                int i00 = y0 * w + x0, i01 = y0 * w + x1, i10 = y1 * w + x0, i11 = y1 * w + x1;
-                float w00 = (1 - tx) * (1 - ty), w01 = tx * (1 - ty), w10 = (1 - tx) * ty, w11 = tx * ty;
-                float k = hole[i00] * w00 + hole[i01] * w01 + hole[i10] * w10 + hole[i11] * w11;
-                if (k <= 0.002f) continue;
-                int j = y * fw + x, p = bgPx[j];
-                float fr = filled[0][i00] * w00 + filled[0][i01] * w01 + filled[0][i10] * w10 + filled[0][i11] * w11;
-                float fg = filled[1][i00] * w00 + filled[1][i01] * w01 + filled[1][i10] * w10 + filled[1][i11] * w11;
-                float fb = filled[2][i00] * w00 + filled[2][i01] * w01 + filled[2][i10] * w10 + filled[2][i11] * w11;
-                float rr = ((p >> 16) & 0xFF) / 255f * (1 - k) + fr * k;
-                float gg = ((p >> 8) & 0xFF) / 255f * (1 - k) + fg * k;
-                float bb = (p & 0xFF) / 255f * (1 - k) + fb * k;
-                bgPx[j] = 0xFF000000 | (to8(rr) << 16) | (to8(gg) << 8) | to8(bb);
+                float tx = colX[x];
+                float k = (hole[y0 * w + colX0[x]] * (1 - tx) + hole[y0 * w + colX1[x]] * tx) * (1 - ty)
+                        + (hole[y1 * w + colX0[x]] * (1 - tx) + hole[y1 * w + colX1[x]] * tx) * ty;
+                inHole[x] = k > 0.5f;
+                any |= inHole[x];
+            }
+            if (!any) continue;
+            int row = y * fw;
+            int x = 0;
+            while (x < fw) {
+                if (!inHole[x]) { x++; continue; }
+                int a0 = x;
+                while (x < fw && inHole[x]) x++;
+                int b0 = x - 1;                        // hole run [a0, b0]
+                // known spans on each side (up to the neighbouring hole run)
+                int ls = a0 - 1; while (ls >= 0 && !inHole[ls]) ls--; ls++;     // left span [ls, a0-1]
+                int re = b0 + 1; while (re < fw && !inHole[re]) re++; re--;     // right span [b0+1, re]
+                int lLen = a0 - ls, rLen = re - b0;
+                if (lLen <= 0 && rLen <= 0) {
+                    for (int xx = a0; xx <= b0; xx++) {
+                        int j = row + xx;
+                        float sx2 = Math.max(0f, Math.min(w - 1f, (xx + 0.5f) * w / fw - 0.5f));
+                        int i0 = y0 * w + (int) sx2;
+                        bgPx[j] = 0xFF000000 | (to8(filled[0][i0]) << 16) | (to8(filled[1][i0]) << 8) | to8(filled[2][i0]);
+                    }
+                    continue;
+                }
+                int mid = (a0 + b0) / 2;
+                for (int xx = a0; xx <= b0; xx++) {
+                    boolean fromLeft = rLen <= 0 || (lLen > 0 && xx <= mid);
+                    int pos;
+                    if (fromLeft) {
+                        int idx = (xx - a0) % (2 * lLen);           // ping-pong inside the left span
+                        pos = idx < lLen ? a0 - 1 - idx : ls + (idx - lLen);
+                    } else {
+                        int idx = (b0 - xx) % (2 * rLen);
+                        pos = idx < rLen ? b0 + 1 + idx : re - (idx - rLen);
+                    }
+                    bgPx[row + xx] = src[row + pos];
+                }
             }
         }
+        src = null;
 
         Bitmap bg = Bitmap.createBitmap(bgPx, fw, fh, Bitmap.Config.ARGB_8888);
         bgPx = null;

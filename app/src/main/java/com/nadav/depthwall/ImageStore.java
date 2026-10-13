@@ -54,7 +54,7 @@ public final class ImageStore {
 
     public static File auxFor(File img) {
         // bump the suffix whenever the layer format changes: old layers are then rebuilt
-        return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux3.png"));
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux4.png"));
     }
 
     public static File bgFor(File img) {
@@ -89,9 +89,11 @@ public final class ImageStore {
 
     private static void cleanupLegacy(File img) {
         legacyDepthFor(img).delete();
-        File old = new File(img.getParentFile(), img.getName().replace(".jpg", ".aux.png"));
-        old.delete();
-        new File(old.getPath() + ".simple").delete();
+        for (String suf : new String[]{".aux.png", ".aux3.png"}) {
+            File old = new File(img.getParentFile(), img.getName().replace(".jpg", suf));
+            old.delete();
+            new File(old.getPath() + ".simple").delete();
+        }
     }
 
     public static void remove(Context c, File img) {
