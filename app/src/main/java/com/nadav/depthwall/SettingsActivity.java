@@ -150,13 +150,28 @@ public class SettingsActivity extends Activity {
         upgradeOldImages();
     }
 
+    /** Runs on the io thread. Downloads the depth model once, with visible progress. */
+    private void ensureModel() {
+        if (DepthModel.available(this)) return;
+        main.post(() -> status.setText("מוריד את מודל העומק — פעם אחת בלבד (66MB)…"));
+        boolean ok = DepthModel.download(this, pct ->
+                main.post(() -> status.setText("מוריד את מודל העומק — פעם אחת בלבד: " + pct + "%")));
+        if (!ok) {
+            main.post(() -> Toast.makeText(this,
+                    "ההורדה נכשלה — התמונות יעובדו בשיטה הפשוטה. בדוק אינטרנט ונסה שוב.",
+                    Toast.LENGTH_LONG).show());
+        }
+    }
+
     /** Images imported by an older version get their subject/background layers built once. */
     private void upgradeOldImages() {
         List<File> todo = new ArrayList<>();
-        for (File f : ImageStore.list(this)) if (ImageStore.needsLayers(f)) todo.add(f);
+        for (File f : ImageStore.list(this))
+            if (ImageStore.needsLayers(f) || ImageStore.builtWithoutModel(f)) todo.add(f);
         if (todo.isEmpty()) return;
         status.setText("משדרג " + todo.size() + " תמונות לתלת-ממד החדש…");
         io.execute(() -> {
+            ensureModel();
             for (int i = 0; i < todo.size(); i++) {
                 final int n = i + 1;
                 main.post(() -> status.setText("משדרג תמונה " + n + " מתוך " + todo.size() + "…"));
@@ -210,6 +225,7 @@ public class SettingsActivity extends Activity {
         if (uris.isEmpty()) return;
         status.setText("מעבד " + uris.size() + " תמונות…");
         io.execute(() -> {
+            ensureModel();
             int ok = 0;
             for (int i = 0; i < uris.size(); i++) {
                 final int n = i + 1;

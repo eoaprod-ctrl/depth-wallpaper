@@ -44,6 +44,8 @@ final class LayerBuilder {
         // ---- depth: ML model, heuristic fallback ----
         float[] d;
         float[] raw = DepthModel.run(c, full);
+        File marker = new File(auxOut.getPath() + ".simple");
+        if (raw == null) marker.createNewFile(); else marker.delete();
         if (raw != null) {
             normalizePercentile(raw, 0.02f, 0.98f);
             d = resize(raw, DepthModel.SIZE, DepthModel.SIZE, w, h);

@@ -23,13 +23,6 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Fetch depth model (MiDaS v2.1 small)
-        run: |
-          mkdir -p app/src/main/assets
-          curl -sSfL --retry 3 -o app/src/main/assets/midas.tflite \
-            https://github.com/isl-org/MiDaS/releases/download/v2_1/model_opt.tflite
-          ls -l app/src/main/assets/midas.tflite
-
       - name: Restore signing key
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}

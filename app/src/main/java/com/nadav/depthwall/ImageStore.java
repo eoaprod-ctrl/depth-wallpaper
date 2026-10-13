@@ -64,6 +64,11 @@ public final class ImageStore {
         return new File(img.getParentFile(), img.getName().replace(".jpg", ".depth.png"));
     }
 
+    /** True when the layers were built without the depth model (e.g. download failed). */
+    public static boolean builtWithoutModel(File img) {
+        return new File(auxFor(img).getPath() + ".simple").exists();
+    }
+
     public static boolean needsLayers(File img) {
         return !auxFor(img).exists() || !bgFor(img).exists();
     }
@@ -84,6 +89,7 @@ public final class ImageStore {
     public static void remove(Context c, File img) {
         img.delete();
         auxFor(img).delete();
+        new File(auxFor(img).getPath() + ".simple").delete();
         bgFor(img).delete();
         legacyDepthFor(img).delete();
         bump(c);
