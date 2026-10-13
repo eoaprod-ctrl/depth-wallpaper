@@ -1,0 +1,35 @@
+name: Mirror models
+
+# Copies the ML models the app downloads on first use into this repo's "models" release,
+# so the app has one stable download host.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/models.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download models
+        run: |
+          set -e
+          curl -sSfL --retry 3 -o midas.tflite \
+            https://github.com/isl-org/MiDaS/releases/download/v2_1/model_opt.tflite
+          curl -sSfL --retry 3 -o migan.tflite \
+            https://huggingface.co/litert-community/MI-GAN-512-Places2-LiteRT/resolve/main/migan_fp16.tflite
+          ls -l *.tflite
+
+      - name: Publish to the models release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models
+          name: models
+          make_latest: false
+          files: |
+            midas.tflite
+            migan.tflite
