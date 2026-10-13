@@ -53,7 +53,8 @@ public final class ImageStore {
     }
 
     public static File auxFor(File img) {
-        return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux.png"));
+        // bump the suffix whenever the layer format changes: old layers are then rebuilt
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux3.png"));
     }
 
     public static File bgFor(File img) {
@@ -82,8 +83,15 @@ public final class ImageStore {
         } finally {
             bmp.recycle();
         }
-        legacyDepthFor(img).delete();
+        cleanupLegacy(img);
         bump(c);
+    }
+
+    private static void cleanupLegacy(File img) {
+        legacyDepthFor(img).delete();
+        File old = new File(img.getParentFile(), img.getName().replace(".jpg", ".aux.png"));
+        old.delete();
+        new File(old.getPath() + ".simple").delete();
     }
 
     public static void remove(Context c, File img) {
@@ -91,7 +99,7 @@ public final class ImageStore {
         auxFor(img).delete();
         new File(auxFor(img).getPath() + ".simple").delete();
         bgFor(img).delete();
-        legacyDepthFor(img).delete();
+        cleanupLegacy(img);
         bump(c);
     }
 

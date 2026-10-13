@@ -67,8 +67,10 @@ final class LayerBuilder {
         float t = otsu(d);
         float[] hard = new float[n];
         for (int i = 0; i < n; i++) hard[i] = d[i] > t ? 1f : 0f;
-        hard = minFilter(hard, w, h, 2);           // opening removes specks
-        hard = maxFilter(hard, w, h, 2);
+        hard = minFilter(maxFilter(hard, w, h, 4), w, h, 4);   // closing joins nearby parts
+        fillHoles(hard, w, h);                                 // no background "windows" inside the subject
+        keepMainParts(hard, w, h, 0.15f);                      // drop stray far-off fragments
+        hard = maxFilter(minFilter(hard, w, h, 2), w, h, 2);   // opening removes specks
         float[] mask = guided(gray, hard, w, h, 3, 1e-4f);
         double sum = 0;
         for (int i = 0; i < n; i++) {
@@ -91,7 +93,7 @@ final class LayerBuilder {
         // ---- background: remove the subject and fill the hole ----
         float[] hole = new float[n];
         for (int i = 0; i < n; i++) hole[i] = mask[i] > 0.2f ? 1f : 0f;
-        hole = maxFilter(hole, w, h, 10);
+        hole = maxFilter(hole, w, h, 6);
         hole = box(hole, w, h, 3);
         float[] known = new float[n];
         for (int i = 0; i < n; i++) {
@@ -100,19 +102,41 @@ final class LayerBuilder {
         }
         float[][] filled = pushPull(new float[][]{r, g, b, dsep}, known, w, h);
         float[] bgDepth = new float[n];
-        int[] bgPx = new int[n];
         int[] auxPx = new int[n];
         for (int i = 0; i < n; i++) {
-            float k = hole[i];
-            float rr = r[i] * (1 - k) + filled[0][i] * k;
-            float gg = g[i] * (1 - k) + filled[1][i] * k;
-            float bb = b[i] * (1 - k) + filled[2][i] * k;
             bgDepth[i] = known[i] > 0 ? dsep[i] : filled[3][i];
-            bgPx[i] = 0xFF000000 | (to8(rr) << 16) | (to8(gg) << 8) | to8(bb);
             auxPx[i] = 0xFF000000 | (to8(fgDepth[i]) << 16) | (to8(mask[i]) << 8) | to8(bgDepth[i]);
         }
 
-        Bitmap bg = Bitmap.createBitmap(bgPx, w, h, Bitmap.Config.ARGB_8888);
+        // background at full resolution: original pixels, filled-in only where the subject was
+        int fw = full.getWidth(), fh = full.getHeight();
+        int[] bgPx = new int[fw * fh];
+        full.getPixels(bgPx, 0, fw, 0, 0, fw, fh);
+        for (int y = 0; y < fh; y++) {
+            float sy = Math.max(0f, Math.min(h - 1f, (y + 0.5f) * h / fh - 0.5f));
+            int y0 = (int) sy, y1 = Math.min(y0 + 1, h - 1);
+            float ty = sy - y0;
+            for (int x = 0; x < fw; x++) {
+                float sx = Math.max(0f, Math.min(w - 1f, (x + 0.5f) * w / fw - 0.5f));
+                int x0 = (int) sx, x1 = Math.min(x0 + 1, w - 1);
+                float tx = sx - x0;
+                int i00 = y0 * w + x0, i01 = y0 * w + x1, i10 = y1 * w + x0, i11 = y1 * w + x1;
+                float w00 = (1 - tx) * (1 - ty), w01 = tx * (1 - ty), w10 = (1 - tx) * ty, w11 = tx * ty;
+                float k = hole[i00] * w00 + hole[i01] * w01 + hole[i10] * w10 + hole[i11] * w11;
+                if (k <= 0.002f) continue;
+                int j = y * fw + x, p = bgPx[j];
+                float fr = filled[0][i00] * w00 + filled[0][i01] * w01 + filled[0][i10] * w10 + filled[0][i11] * w11;
+                float fg = filled[1][i00] * w00 + filled[1][i01] * w01 + filled[1][i10] * w10 + filled[1][i11] * w11;
+                float fb = filled[2][i00] * w00 + filled[2][i01] * w01 + filled[2][i10] * w10 + filled[2][i11] * w11;
+                float rr = ((p >> 16) & 0xFF) / 255f * (1 - k) + fr * k;
+                float gg = ((p >> 8) & 0xFF) / 255f * (1 - k) + fg * k;
+                float bb = (p & 0xFF) / 255f * (1 - k) + fb * k;
+                bgPx[j] = 0xFF000000 | (to8(rr) << 16) | (to8(gg) << 8) | to8(bb);
+            }
+        }
+
+        Bitmap bg = Bitmap.createBitmap(bgPx, fw, fh, Bitmap.Config.ARGB_8888);
+        bgPx = null;
         try (FileOutputStream fo = new FileOutputStream(bgOut)) {
             bg.compress(Bitmap.CompressFormat.JPEG, 92, fo);
         }
@@ -254,6 +278,65 @@ final class LayerBuilder {
             }
         }
         return out;
+    }
+
+    /** Background pixels not reachable from the image border are holes inside the subject. */
+    private static void fillHoles(float[] m, int w, int h) {
+        int n = w * h;
+        boolean[] outside = new boolean[n];
+        int[] queue = new int[n];
+        int head = 0, tail = 0;
+        for (int x = 0; x < w; x++) {
+            tail = seed(m, outside, queue, tail, x);
+            tail = seed(m, outside, queue, tail, (h - 1) * w + x);
+        }
+        for (int y = 0; y < h; y++) {
+            tail = seed(m, outside, queue, tail, y * w);
+            tail = seed(m, outside, queue, tail, y * w + w - 1);
+        }
+        while (head < tail) {
+            int i = queue[head++], x = i % w, y = i / w;
+            if (x > 0) tail = seed(m, outside, queue, tail, i - 1);
+            if (x < w - 1) tail = seed(m, outside, queue, tail, i + 1);
+            if (y > 0) tail = seed(m, outside, queue, tail, i - w);
+            if (y < h - 1) tail = seed(m, outside, queue, tail, i + w);
+        }
+        for (int i = 0; i < n; i++) if (!outside[i]) m[i] = 1f;
+    }
+
+    private static int seed(float[] m, boolean[] seen, int[] q, int tail, int i) {
+        if (!seen[i] && m[i] < 0.5f) { seen[i] = true; q[tail++] = i; }
+        return tail;
+    }
+
+    /** Keeps connected subject parts whose area is at least {@code minRatio} of the largest one. */
+    private static void keepMainParts(float[] m, int w, int h, float minRatio) {
+        int n = w * h;
+        int[] label = new int[n];
+        int[] queue = new int[n];
+        java.util.List<Integer> sizes = new java.util.ArrayList<>();
+        sizes.add(0);
+        int next = 1;
+        for (int s = 0; s < n; s++) {
+            if (m[s] < 0.5f || label[s] != 0) continue;
+            int head = 0, tail = 0, size = 0;
+            label[s] = next; queue[tail++] = s;
+            while (head < tail) {
+                int i = queue[head++], x = i % w, y = i / w;
+                size++;
+                int[] nb = {x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1};
+                for (int j : nb) {
+                    if (j >= 0 && label[j] == 0 && m[j] >= 0.5f) { label[j] = next; queue[tail++] = j; }
+                }
+            }
+            sizes.add(size);
+            next++;
+        }
+        int largest = 0;
+        for (int sz : sizes) largest = Math.max(largest, sz);
+        for (int i = 0; i < n; i++) {
+            if (label[i] != 0 && sizes.get(label[i]) < minRatio * largest) m[i] = 0f;
+        }
     }
 
     private static int cl(int v, int n) { return v < 0 ? 0 : (v >= n ? n - 1 : v); }

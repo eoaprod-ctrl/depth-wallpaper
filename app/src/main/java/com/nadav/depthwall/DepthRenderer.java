@@ -45,17 +45,11 @@ final class DepthRenderer implements GLSurfaceView.Renderer {
             "uniform float uZoom; uniform float uMix; uniform float uBlur; uniform float uShadow;\n" +
             "vec3 look(sampler2D img, sampler2D bg, sampler2D aux, vec2 sc){\n" +
             "  vec2 c = (vUv - 0.5) * sc * uZoom + 0.5 + uScroll;\n" +
-            // background layer (subject removed), smooth depth -> one refinement is enough
-            "  float hb = texture2D(aux, c).b;\n" +
-            "  vec2 bc = c - uTilt * (hb - 0.5);\n" +
-            "  hb = 0.5 * (hb + texture2D(aux, bc).b);\n" +
-            "  bc = c - uTilt * (hb - 0.5);\n" +
-            "  vec3 col = texture2D(bg, bc, uBlur * (1.0 - hb)).rgb;\n" +
-            // subject layer: depth was dilated at import, so edges move as one piece
-            "  float hf = texture2D(aux, c).r;\n" +
-            "  vec2 fc = c - uTilt * (hf - 0.5);\n" +
-            "  hf = texture2D(aux, fc).r;\n" +
-            "  fc = c - uTilt * (hf - 0.5);\n" +
+            // two rigid layers: nothing inside a layer is warped, so nothing smears.
+            // background sits behind the focus plane, the subject in front of it.
+            "  vec2 bc = c + uTilt * 0.3;\n" +
+            "  vec3 col = texture2D(bg, bc, uBlur).rgb;\n" +
+            "  vec2 fc = c - uTilt * 0.3;\n" +
             "  float a = smoothstep(0.2, 0.8, texture2D(aux, fc).g);\n" +
             "  float sh = texture2D(aux, fc + uShadowOff, 3.0).g;\n" +
             "  col *= 1.0 - uShadow * sh * (1.0 - a);\n" +
@@ -213,8 +207,8 @@ final class DepthRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform2f(uScroll, curScroll * scrollAmp, 0f);
         // shadow falls away from the light, a little down-right, and slides with the tilt
         GLES30.glUniform2f(uShadowOff, -0.012f + ox * 0.15f, -0.018f + oy * 0.15f);
-        GLES30.glUniform1f(uShadow, shadow ? 0.32f : 0f);
-        GLES30.glUniform1f(uBlur, blur ? 2.2f : 0f);
+        GLES30.glUniform1f(uShadow, shadow ? 0.22f : 0f);
+        GLES30.glUniform1f(uBlur, blur ? 1.3f : 0f);
         GLES30.glUniform1f(uZoom, zoom);
         GLES30.glUniform1f(uMix, mix);
 

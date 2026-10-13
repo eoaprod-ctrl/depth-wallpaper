@@ -196,7 +196,7 @@ public class DepthWallpaperService extends WallpaperService {
 
         private void applyParams() {
             renderer.setParams(prefs.getInt(ImageStore.K_STRENGTH, 55) / 100f,
-                    prefs.getBoolean(ImageStore.K_BLUR, true),
+                    prefs.getBoolean(ImageStore.K_BLUR, false),
                     prefs.getBoolean(ImageStore.K_SHADOW, true),
                     prefs.getBoolean(ImageStore.K_SCROLL, true));
         }

@@ -106,7 +106,7 @@ public class SettingsActivity extends Activity {
         });
         str.setPadding(dp(4), dp(10), dp(4), dp(14));
         fx.addView(str);
-        fx.addView(toggle("טשטוש רקע כמו בצילום פורטרט", ImageStore.K_BLUR, true));
+        fx.addView(toggle("טשטוש רקע כמו בצילום פורטרט", ImageStore.K_BLUR, false));
         fx.addView(toggle("צל של האובייקט על הרקע", ImageStore.K_SHADOW, true));
         fx.addView(toggle("תזוזה בהחלקה בין מסכי הבית", ImageStore.K_SCROLL, true));
 
