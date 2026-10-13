@@ -21,15 +21,14 @@ public final class ImageStore {
 
     public static final String PREFS = "depthwall";
     public static final String K_STRENGTH = "strength";     // 0..100
-    public static final String K_DEPTH = "depthMode";       // true = depth effect, false = flat window
+    public static final String K_BLUR = "blur";             // portrait-style background blur
+    public static final String K_SHADOW = "shadow";         // subject casts a soft shadow
     public static final String K_INTERVAL = "interval";     // 0 manual, 1 unlock, 2 hourly, 3 daily
     public static final String K_SAVER = "saver";           // follow battery saver
     public static final String K_SCROLL = "scroll";         // home-screen page parallax
     public static final String K_INDEX = "index";
     public static final String K_LAST = "lastChange";
     public static final String K_VERSION = "version";       // bumped whenever the image list changes
-
-    private static final int DEPTH_SIZE = 192;
 
     private ImageStore() {}
 
@@ -45,7 +44,7 @@ public final class ImageStore {
 
     /** Image files in stable (name) order. */
     public static List<File> list(Context c) {
-        File[] fs = dir(c).listFiles((f, n) -> n.endsWith(".jpg"));
+        File[] fs = dir(c).listFiles((f, n) -> n.matches("img_\\d+\\.jpg"));
         List<File> out = new ArrayList<>();
         if (fs == null) return out;
         Arrays.sort(fs, (a, b) -> a.getName().compareTo(b.getName()));
@@ -53,13 +52,40 @@ public final class ImageStore {
         return out;
     }
 
-    public static File depthFor(File img) {
+    public static File auxFor(File img) {
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".aux.png"));
+    }
+
+    public static File bgFor(File img) {
+        return new File(img.getParentFile(), img.getName().replace(".jpg", ".bg.jpg"));
+    }
+
+    private static File legacyDepthFor(File img) {
         return new File(img.getParentFile(), img.getName().replace(".jpg", ".depth.png"));
+    }
+
+    public static boolean needsLayers(File img) {
+        return !auxFor(img).exists() || !bgFor(img).exists();
+    }
+
+    /** (Re)builds the subject/background layers for an already imported image. */
+    public static void buildLayers(Context c, File img) throws IOException {
+        Bitmap bmp = loadFull(img);
+        if (bmp == null) throw new IOException("decode failed");
+        try {
+            LayerBuilder.build(c, bmp, auxFor(img), bgFor(img));
+        } finally {
+            bmp.recycle();
+        }
+        legacyDepthFor(img).delete();
+        bump(c);
     }
 
     public static void remove(Context c, File img) {
         img.delete();
-        depthFor(img).delete();
+        auxFor(img).delete();
+        bgFor(img).delete();
+        legacyDepthFor(img).delete();
         bump(c);
     }
 
@@ -99,12 +125,11 @@ public final class ImageStore {
         try (FileOutputStream fo = new FileOutputStream(out)) {
             bmp.compress(Bitmap.CompressFormat.JPEG, 95, fo);
         }
-        Bitmap depth = DepthEstimator.estimate(bmp, DEPTH_SIZE);
-        try (FileOutputStream fo = new FileOutputStream(depthFor(out))) {
-            depth.compress(Bitmap.CompressFormat.PNG, 100, fo);
+        try {
+            LayerBuilder.build(c, bmp, auxFor(out), bgFor(out));
+        } finally {
+            bmp.recycle();
         }
-        depth.recycle();
-        bmp.recycle();
         bump(c);
         return out;
     }

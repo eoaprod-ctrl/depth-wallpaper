@@ -3,3 +3,4 @@ build/
 app/build/
 local.properties
 *.jks
+app/src/main/assets/midas.tflite

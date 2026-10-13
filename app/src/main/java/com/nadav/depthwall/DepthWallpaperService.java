@@ -180,11 +180,13 @@ public class DepthWallpaperService extends WallpaperService {
         private void load(File f, boolean fade) {
             if (f == null) return;
             io.execute(() -> {
+                if (ImageStore.needsLayers(f)) return; // settings screen rebuilds old imports
                 Bitmap img = ImageStore.loadFull(f);
-                Bitmap dep = ImageStore.loadFull(ImageStore.depthFor(f));
-                if (img == null || dep == null) return;
+                Bitmap bg = ImageStore.loadFull(ImageStore.bgFor(f));
+                Bitmap aux = ImageStore.loadFull(ImageStore.auxFor(f));
+                if (img == null || bg == null || aux == null) return;
                 glView.queueEvent(() -> {
-                    renderer.setImage(img, dep, fade);
+                    renderer.setImage(img, bg, aux, fade);
                     glView.requestRender();
                 });
             });
@@ -194,7 +196,8 @@ public class DepthWallpaperService extends WallpaperService {
 
         private void applyParams() {
             renderer.setParams(prefs.getInt(ImageStore.K_STRENGTH, 55) / 100f,
-                    prefs.getBoolean(ImageStore.K_DEPTH, true),
+                    prefs.getBoolean(ImageStore.K_BLUR, true),
+                    prefs.getBoolean(ImageStore.K_SHADOW, true),
                     prefs.getBoolean(ImageStore.K_SCROLL, true));
         }
 
@@ -207,8 +210,8 @@ public class DepthWallpaperService extends WallpaperService {
                     if (v == listVersion) break;
                     listVersion = v;
                     File f = pick(p.getInt(ImageStore.K_INDEX, 0));
-                    if (f != null && !f.equals(current)) { current = f; load(f, true); }
-                    else if (f == null) current = null;
+                    current = f;
+                    if (f != null) load(f, true);
                     break;
                 }
                 case ImageStore.K_INDEX: {

@@ -94,10 +94,10 @@ public class SettingsActivity extends Activity {
         SeekBar str = new SeekBar(this);
         str.setMax(100);
         str.setProgress(prefs.getInt(ImageStore.K_STRENGTH, 55));
-        strLabel.setText("עוצמת התלת-ממד: " + str.getProgress() + "%");
+        strLabel.setText("מרחק בין האובייקט לרקע: " + str.getProgress() + "%");
         str.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean u) {
-                strLabel.setText("עוצמת התלת-ממד: " + p + "%");
+                strLabel.setText("מרחק בין האובייקט לרקע: " + p + "%");
             }
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {
@@ -106,8 +106,8 @@ public class SettingsActivity extends Activity {
         });
         str.setPadding(dp(4), dp(10), dp(4), dp(14));
         fx.addView(str);
-        fx.addView(toggle("עומק אמיתי — קרוב זז יותר מרחוק",
-                ImageStore.K_DEPTH, true));
+        fx.addView(toggle("טשטוש רקע כמו בצילום פורטרט", ImageStore.K_BLUR, true));
+        fx.addView(toggle("צל של האובייקט על הרקע", ImageStore.K_SHADOW, true));
         fx.addView(toggle("תזוזה בהחלקה בין מסכי הבית", ImageStore.K_SCROLL, true));
 
         // ---- rotation ----
@@ -147,6 +147,24 @@ public class SettingsActivity extends Activity {
 
         setContentView(scroll);
         refreshThumbs();
+        upgradeOldImages();
+    }
+
+    /** Images imported by an older version get their subject/background layers built once. */
+    private void upgradeOldImages() {
+        List<File> todo = new ArrayList<>();
+        for (File f : ImageStore.list(this)) if (ImageStore.needsLayers(f)) todo.add(f);
+        if (todo.isEmpty()) return;
+        status.setText("משדרג " + todo.size() + " תמונות לתלת-ממד החדש…");
+        io.execute(() -> {
+            for (int i = 0; i < todo.size(); i++) {
+                final int n = i + 1;
+                main.post(() -> status.setText("משדרג תמונה " + n + " מתוך " + todo.size() + "…"));
+                try { ImageStore.buildLayers(this, todo.get(i)); } catch (Throwable ignored) {}
+            }
+            DepthModel.release();
+            main.post(() -> { status.setText("השדרוג הושלם"); refreshThumbs(); });
+        });
     }
 
     @Override
@@ -195,10 +213,11 @@ public class SettingsActivity extends Activity {
             int ok = 0;
             for (int i = 0; i < uris.size(); i++) {
                 final int n = i + 1;
-                main.post(() -> status.setText("מעבד תמונה " + n + " מתוך " + uris.size() + "…"));
+                main.post(() -> status.setText("מפריד אובייקט מרקע בתמונה " + n + " מתוך " + uris.size() + "…"));
                 try { ImageStore.importImage(this, uris.get(i)); ok++; }
                 catch (Throwable t) { /* skip unreadable file */ }
             }
+            DepthModel.release();
             final int done = ok;
             main.post(() -> {
                 status.setText(done == uris.size() ? "" : "חלק מהתמונות לא נטענו");
